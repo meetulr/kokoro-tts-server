@@ -1,12 +1,22 @@
-# Kokoro TTS Server
+---
+title: Kokoro TTS Server
+emoji: 🎤
+colorFrom: blue
+colorTo: purple
+sdk: docker
+pinned: false
+---
 
-High-performance Kokoro TTS streaming server on Hugging Face Spaces.
+# Kokoro TTS Streaming Server
+
+High-performance Kokoro TTS API with streaming support.
 
 ## Endpoints
 
 - `GET /` - Health check
 - `GET /voices` - List available voices
-- `POST /tts` - Generate speech
+- `POST /tts` - Generate complete audio
+- `POST /tts/stream` - Stream audio generation
 
 ## Usage
 
@@ -27,9 +37,8 @@ with open("output.wav", "wb") as f:
     f.write(response.content)
 ```
 
-## Performance Optimizations
+## Available Voices
 
-- ONNX Runtime CPU optimizations enabled
-- Thread spinning for low latency
-- Memory arena for efficient allocation
-- Denormal-as-zero for faster float ops
+Female: af_alloy, af_aoede, af_bella, af_heart, af_jessica, af_kore, af_nicole, af_nova, af_river, af_sarah, af_sky
+
+Male: am_adam, am_michael
