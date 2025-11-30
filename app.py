@@ -3,10 +3,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import onnxruntime as ort
 import io
 import soundfile as sf
-import struct
+import numpy as np
 
 app = FastAPI()
 
@@ -20,29 +19,11 @@ app.add_middleware(
 
 kokoro_session = None
 
-def create_optimized_session():
-    sess_options = ort.SessionOptions()
-    sess_options.intra_op_num_threads = 0
-    sess_options.inter_op_num_threads = 1
-    sess_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-    sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-    sess_options.enable_cpu_mem_arena = True
-    sess_options.enable_mem_pattern = True
-    sess_options.add_session_config_entry("session.intra_op.allow_spinning", "1")
-    sess_options.add_session_config_entry("session.inter_op.allow_spinning", "1")
-    sess_options.add_session_config_entry("session.set_denormal_as_zero", "1")
-    return sess_options
-
 @app.on_event("startup")
 def startup():
     global kokoro_session
     from kokoro_onnx import Kokoro
-    sess_options = create_optimized_session()
-    kokoro_session = Kokoro(
-        "kokoro-v1.0.onnx", 
-        "voices-v1.0.bin",
-        sess_options=sess_options
-    )
+    kokoro_session = Kokoro("kokoro-v1.0.onnx", "voices-v1.0.bin")
 
 class TTSRequest(BaseModel):
     text: str
@@ -66,9 +47,13 @@ def voices():
     }
 
 @app.post("/tts/stream")
-def tts_stream(req: TTSRequest):
-    def generate():
+async def tts_stream(req: TTSRequest):
+    async def generate():
         try:
+            all_samples = []
+            sample_rate = None
+            
+            # Collect ALL chunks first
             stream = kokoro_session.create_stream(
                 req.text,
                 voice=req.voice,
@@ -76,9 +61,20 @@ def tts_stream(req: TTSRequest):
                 lang=req.lang
             )
             
-            for samples, sample_rate in stream:
+            async for samples, sr in stream:
+                all_samples.append(samples)
+                if sample_rate is None:
+                    sample_rate = sr
+            
+            # Make sure we got all chunks
+            if all_samples and sample_rate:
+                combined = np.concatenate(all_samples)
+                # Add 0.5 seconds of silence
+                silence = np.zeros(int(sample_rate * 0.5))
+                combined = np.concatenate([combined, silence])
+                
                 buf = io.BytesIO()
-                sf.write(buf, samples, sample_rate, format='WAV', subtype='PCM_16')
+                sf.write(buf, combined, sample_rate, format='WAV', subtype='PCM_16')
                 buf.seek(0)
                 yield buf.read()
                 
